@@ -21,6 +21,7 @@ import (
 
 	"github.com/instrumenta/kubeval/kubeval"
 	"github.com/instrumenta/kubeval/log"
+	"github.com/instrumenta/kubeval/pkg/schemadownloader"
 )
 
 var (
@@ -89,7 +90,7 @@ var RootCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			config.FileName = viper.GetString("filename")
-			schemaDownloader := kubeval.WithCache(kubeval.NewSchemaDownloader())
+			schemaDownloader := schemadownloader.WithCache(schemadownloader.NewSchemaDownloader())
 			results, err := kubeval.Validate(buffer.Bytes(), schemaDownloader, config)
 			if err != nil {
 				log.Error(err)
@@ -126,7 +127,7 @@ var RootCmd = &cobra.Command{
 					continue
 				}
 				config.FileName = fileName
-				schemaDownloader := kubeval.WithCache(kubeval.NewSchemaDownloader())
+				schemaDownloader := schemadownloader.WithCache(schemadownloader.NewSchemaDownloader())
 				results, err := kubeval.Validate(fileContents, schemaDownloader, config)
 				if err != nil {
 					log.Error(err)

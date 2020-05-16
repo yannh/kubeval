@@ -3,6 +3,7 @@ package kubeval
 import (
 	"bytes"
 	"fmt"
+	"github.com/instrumenta/kubeval/pkg/schemadownloader"
 	"os"
 	"regexp"
 	"strings"
@@ -124,7 +125,7 @@ func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaL
 // validateResource validates a single Kubernetes resource against
 // the relevant schema, detecting the type of resource automatically.
 // Returns the result and raw YAML body as map.
-func validateResource(data []byte, downloadSchema SchemaDownloader, config *Config) (ValidationResult, map[string]interface{}, error) {
+func validateResource(data []byte, downloadSchema schemadownloader.SchemaDownloader, config *Config) (ValidationResult, map[string]interface{}, error) {
 	result := ValidationResult{}
 	var body map[string]interface{}
 	err := yaml.Unmarshal(data, &body)
@@ -209,7 +210,7 @@ func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]goj
 // and validating them all according to the relevant schemas
 // Allows passing a kubeval.NewSchemaCache() to cache schemas in-memory
 // between validations
-func Validate(input []byte, downloadSchema SchemaDownloader, config *Config) ([]ValidationResult, error) {
+func Validate(input []byte, downloadSchema schemadownloader.SchemaDownloader, config *Config) ([]ValidationResult, error) {
 	results := make([]ValidationResult, 0)
 
 	if len(config.DefaultNamespace) == 0 {

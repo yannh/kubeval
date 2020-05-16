@@ -1,4 +1,4 @@
-package kubeval
+package schemadownloader
 
 import (
 	"crypto/md5"
@@ -37,7 +37,6 @@ func (csd *CachedSchemaDownloader) SchemaDownload (schemaRefs []string) (*gojson
 	if schema, ok := csd.schemaCache[key]; ok {
 		return schema, nil
 	}
-
 	schema, err := csd.schemaDownloader.SchemaDownload(schemaRefs)
 	if err != nil {
 		csd.schemaCache[key] = nil
@@ -73,10 +72,6 @@ func (ssd *SimpleSchemaDownloader) SchemaDownload (schemaRefs []string) (*gojson
 		// We couldn't find a schema for this URL, so take a note, then try the next URL
 		wrappedErr := fmt.Errorf("Failed initializing schema %s: %s", schemaRef, err)
 		errors = multierror.Append(errors, wrappedErr)
-	}
-
-	if errors != nil {
-		errors.ErrorFormat = singleLineErrorFormat
 	}
 
 	// We couldn't find a schema for this resource
