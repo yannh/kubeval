@@ -88,9 +88,9 @@ var RootCmd = &cobra.Command{
 				log.Error(err)
 				os.Exit(1)
 			}
-			schemaCache := kubeval.NewSchemaCache()
 			config.FileName = viper.GetString("filename")
-			results, err := kubeval.ValidateWithCache(buffer.Bytes(), schemaCache, config)
+			schemaDownloader := kubeval.WithCache(kubeval.NewSchemaDownloader())
+			results, err := kubeval.Validate(buffer.Bytes(), schemaDownloader, config)
 			if err != nil {
 				log.Error(err)
 				os.Exit(1)
@@ -109,7 +109,6 @@ var RootCmd = &cobra.Command{
 				log.Error(errors.New("You must pass at least one file as an argument, or at least one directory to the directories flag"))
 				os.Exit(1)
 			}
-			schemaCache := kubeval.NewSchemaCache()
 			files, err := aggregateFiles(args)
 			if err != nil {
 				log.Error(err)
@@ -127,7 +126,8 @@ var RootCmd = &cobra.Command{
 					continue
 				}
 				config.FileName = fileName
-				results, err := kubeval.ValidateWithCache(fileContents, schemaCache, config)
+				schemaDownloader := kubeval.WithCache(kubeval.NewSchemaDownloader())
+				results, err := kubeval.Validate(fileContents, schemaDownloader, config)
 				if err != nil {
 					log.Error(err)
 					earlyExit()

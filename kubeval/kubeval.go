@@ -50,24 +50,24 @@ func (v *ValidationResult) QualifiedName() string {
 	}
 }
 
-func determineSchemaURL(baseURL, kind, apiVersion string, config *Config) string {
+func determineSchemaURL(baseURL, kind, apiVersion string, kubernetesVersion string, strict bool, isOpenShift bool) string {
 	// We have both the upstream Kubernetes schemas and the OpenShift schemas available
 	// the tool can toggle between then using the config.OpenShift boolean flag and here we
 	// use that to format the URL to match the required specification.
 
 	// Most of the directories which store the schemas are prefixed with a v so as to
 	// match the tagging in the Kubernetes repository, apart from master.
-	normalisedVersion := config.KubernetesVersion
+	normalisedVersion := kubernetesVersion
 	if normalisedVersion != "master" {
 		normalisedVersion = "v" + normalisedVersion
 	}
 
 	strictSuffix := ""
-	if config.Strict {
+	if strict {
 		strictSuffix = "-strict"
 	}
 
-	if config.OpenShift {
+	if isOpenShift {
 		// If we're using the openshift schemas, there's no further processing required
 		return fmt.Sprintf("%s/%s-standalone%s/%s.json", baseURL, normalisedVersion, strictSuffix, strings.ToLower(kind))
 	}
@@ -111,7 +111,7 @@ func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 // validateResource validates a single Kubernetes resource against
 // the relevant schema, detecting the type of resource automatically.
 // Returns the result and raw YAML body as map.
-func validateResource(data []byte, schemaCache map[string]*gojsonschema.Schema, config *Config) (ValidationResult, map[string]interface{}, error) {
+func validateResource(data []byte, downloadSchema SchemaDownloader, config *Config) (ValidationResult, map[string]interface{}, error) {
 	result := ValidationResult{}
 	result.FileName = config.FileName
 	var body map[string]interface{}
@@ -154,7 +154,7 @@ func validateResource(data []byte, schemaCache map[string]*gojsonschema.Schema, 
 		return result, body, fmt.Errorf("Prohibited resource kind '%s' in %s", kind, result.FileName)
 	}
 
-	schemaErrors, err := validateAgainstSchema(body, &result, schemaCache, config)
+	schemaErrors, err := validateAgainstSchema(body, &result, downloadSchema, config)
 	if err != nil {
 		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
@@ -162,9 +162,8 @@ func validateResource(data []byte, schemaCache map[string]*gojsonschema.Schema, 
 	return result, body, nil
 }
 
-func validateAgainstSchema(body interface{}, resource *ValidationResult, schemaCache map[string]*gojsonschema.Schema, config *Config) ([]gojsonschema.ResultError, error) {
-
-	schema, err := downloadSchema(resource, schemaCache, config)
+func validateAgainstSchema(body interface{}, resource *ValidationResult, downloadSchema SchemaDownloader, config *Config) ([]gojsonschema.ResultError, error) {
+	schema, err := downloadSchema.SchemaDownload(resource.VersionKind(), resource.APIVersion, determineSchemaBaseURL(config.OpenShift, config.SchemaLocation), config.AdditionalSchemaLocations, config.KubernetesVersion, config.OpenShift, config.Strict)
 	if err != nil || schema == nil {
 		return handleMissingSchema(err, config)
 	}
@@ -191,46 +190,6 @@ func validateAgainstSchema(body interface{}, resource *ValidationResult, schemaC
 	return []gojsonschema.ResultError{}, nil
 }
 
-// returned schema may be nil scehma is missing and missing schemas are allowed
-func downloadSchema(resource *ValidationResult, schemaCache map[string]*gojsonschema.Schema, config *Config) (*gojsonschema.Schema, error) {
-	if schema, ok := schemaCache[resource.VersionKind()]; ok {
-		// If the schema was previously cached, there's no work to be done
-		return schema, nil
-	}
-
-	// We haven't cached this schema yet; look for one that works
-	primarySchemaBaseURL := determineSchemaBaseURL(config.OpenShift, config.SchemaLocation)
-	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, resource.Kind, resource.APIVersion, config)
-	schemaRefs := []string{primarySchemaRef}
-
-	for _, additionalSchemaURLs := range config.AdditionalSchemaLocations {
-		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, resource.Kind, resource.APIVersion, config)
-		schemaRefs = append(schemaRefs, additionalSchemaRef)
-	}
-
-	var errors *multierror.Error
-
-	for _, schemaRef := range schemaRefs {
-		schemaLoader := gojsonschema.NewReferenceLoader(schemaRef)
-		schema, err := gojsonschema.NewSchema(schemaLoader)
-		if err == nil {
-			// success! cache this and stop looking
-			schemaCache[resource.VersionKind()] = schema
-			return schema, nil
-		}
-		// We couldn't find a schema for this URL, so take a note, then try the next URL
-		wrappedErr := fmt.Errorf("Failed initializing schema %s: %s", schemaRef, err)
-		errors = multierror.Append(errors, wrappedErr)
-	}
-
-	if errors != nil {
-		errors.ErrorFormat = singleLineErrorFormat
-	}
-
-	// We couldn't find a schema for this resource. Cache its lack of existence
-	schemaCache[resource.VersionKind()] = nil
-	return nil, errors.ErrorOrNil()
-}
 
 func handleMissingSchema(err error, config *Config) ([]gojsonschema.ResultError, error) {
 	if config.IgnoreMissingSchemas {
@@ -239,24 +198,11 @@ func handleMissingSchema(err error, config *Config) ([]gojsonschema.ResultError,
 	return []gojsonschema.ResultError{}, err
 }
 
-// NewSchemaCache returns a new schema cache to be used with
-// ValidateWithCache
-func NewSchemaCache() map[string]*gojsonschema.Schema {
-	return make(map[string]*gojsonschema.Schema, 0)
-}
-
-// Validate a Kubernetes YAML file, parsing out individual resources
-// and validating them all according to the  relevant schemas
-func Validate(input []byte, config *Config) ([]ValidationResult, error) {
-	schemaCache := NewSchemaCache()
-	return ValidateWithCache(input, schemaCache, config)
-}
-
 // ValidateWithCache validates a Kubernetes YAML file, parsing out individual resources
 // and validating them all according to the relevant schemas
 // Allows passing a kubeval.NewSchemaCache() to cache schemas in-memory
 // between validations
-func ValidateWithCache(input []byte, schemaCache map[string]*gojsonschema.Schema, config *Config) ([]ValidationResult, error) {
+func Validate(input []byte, downloadSchema SchemaDownloader, config *Config) ([]ValidationResult, error) {
 	results := make([]ValidationResult, 0)
 
 	if len(config.DefaultNamespace) == 0 {
@@ -311,7 +257,7 @@ func ValidateWithCache(input []byte, schemaCache map[string]*gojsonschema.Schema
 				config.FileName = found[1]
 			}
 
-			result, body, err := validateResource(element, schemaCache, config)
+			result, body, err := validateResource(element, downloadSchema, config)
 			if err != nil {
 				errors = multierror.Append(errors, err)
 				if config.ExitOnError {
