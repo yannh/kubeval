@@ -29,22 +29,21 @@ func schemaRefsHash(schemaRefs []string)[16]byte {
 }
 
 func (csd *CachedSchemaDownloader) SchemaDownload (schemaRefs []string) (*gojsonschema.Schema, error) {
-	csd.Lock()
-	defer csd.Unlock()
-
 	key := schemaRefsHash(schemaRefs)
 
-	if schema, ok := csd.schemaCache[key]; ok {
+	csd.Lock()
+	schema, ok := csd.schemaCache[key]
+	csd.Unlock()
+
+	if ok {
 		return schema, nil
 	}
 	schema, err := csd.schemaDownloader.SchemaDownload(schemaRefs)
-	if err != nil {
-		csd.schemaCache[key] = nil
-		return schema, err
-	}
+	csd.Lock()
 	csd.schemaCache[key] = schema
+	csd.Unlock()
 
-	return schema, nil
+	return schema, err
 }
 
 func WithCache(schemaDownloader SchemaDownloader) *CachedSchemaDownloader {
