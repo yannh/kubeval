@@ -108,6 +108,19 @@ func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 	return DefaultSchemaLocation
 }
 
+func resourceSchemaRefs(resource *ValidationResult, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)[]string{
+	primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
+	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, resource.VersionKind(), resource.APIVersion, kubernetesVersion, isOpenShift, strict)
+	schemaRefs := []string{primarySchemaRef}
+
+	for _, additionalSchemaURLs := range additionalSchemaLocations {
+		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, resource.VersionKind(), resource.APIVersion, kubernetesVersion, isOpenShift, strict)
+		schemaRefs = append(schemaRefs, additionalSchemaRef)
+	}
+
+	return schemaRefs
+}
+
 // validateResource validates a single Kubernetes resource against
 // the relevant schema, detecting the type of resource automatically.
 // Returns the result and raw YAML body as map.
@@ -154,7 +167,13 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 		return result, body, fmt.Errorf("Prohibited resource kind '%s' in %s", kind, result.FileName)
 	}
 
-	schemaErrors, err := validateAgainstSchema(body, &result, downloadSchema, config)
+	schemaRefs := resourceSchemaRefs(&result, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
+	schema, err := downloadSchema.SchemaDownload(result.VersionKind(), schemaRefs)
+	if err != nil || (schema == nil && !config.IgnoreMissingSchemas) {
+		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+	}
+
+	schemaErrors, err := validateAgainstSchema(body, schema, &result)
 	if err != nil {
 		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
@@ -162,12 +181,7 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 	return result, body, nil
 }
 
-func validateAgainstSchema(body interface{}, resource *ValidationResult, downloadSchema SchemaDownloader, config *Config) ([]gojsonschema.ResultError, error) {
-	schema, err := downloadSchema.SchemaDownload(resource.VersionKind(), resource.APIVersion, determineSchemaBaseURL(config.OpenShift, config.SchemaLocation), config.AdditionalSchemaLocations, config.KubernetesVersion, config.OpenShift, config.Strict)
-	if err != nil || schema == nil {
-		return handleMissingSchema(err, config)
-	}
-
+func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema, resource *ValidationResult) ([]gojsonschema.ResultError, error) {
 	// Without forcing these types the schema fails to load
 	// Need to Work out proper handling for these types
 	gojsonschema.FormatCheckers.Add("int64", ValidFormat{})
@@ -188,14 +202,6 @@ func validateAgainstSchema(body interface{}, resource *ValidationResult, downloa
 	}
 
 	return []gojsonschema.ResultError{}, nil
-}
-
-
-func handleMissingSchema(err error, config *Config) ([]gojsonschema.ResultError, error) {
-	if config.IgnoreMissingSchemas {
-		return []gojsonschema.ResultError{}, nil
-	}
-	return []gojsonschema.ResultError{}, err
 }
 
 // ValidateWithCache validates a Kubernetes YAML file, parsing out individual resources

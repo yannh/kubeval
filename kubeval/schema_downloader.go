@@ -9,7 +9,7 @@ import (
 
 type SchemaDownloader interface {
 	// returned schema may be nil scehma is missing and missing schemas are allowed
-	SchemaDownload(kind string, APIVersion string, primarySchemaBaseURL string, additionalSchemaLocations []string, kubernetesVersion string, isOpenShift bool, strict bool) (*gojsonschema.Schema, error)
+	SchemaDownload(versionKind string, schemaRefs []string) (*gojsonschema.Schema, error)
 }
 
 type CachedSchemaDownloader struct {
@@ -18,20 +18,20 @@ type CachedSchemaDownloader struct {
 	schemaCache map[string]*gojsonschema.Schema
 }
 
-func (csd *CachedSchemaDownloader) SchemaDownload (kind string, APIVersion string, primarySchemaBaseURL string, additionalSchemaLocations []string, kubernetesVersion string, isOpenShift bool, strict bool) (*gojsonschema.Schema, error) {
+func (csd *CachedSchemaDownloader) SchemaDownload (versionKind string, schemaRefs []string) (*gojsonschema.Schema, error) {
 	csd.Lock()
 	defer csd.Unlock()
 
-	if schema, ok := csd.schemaCache[kind]; ok {
+	if schema, ok := csd.schemaCache[versionKind]; ok {
 		return schema, nil
 	}
 
-	schema, err := csd.schemaDownloader.SchemaDownload(kind, APIVersion, primarySchemaBaseURL, additionalSchemaLocations, kubernetesVersion, isOpenShift, strict)
+	schema, err := csd.schemaDownloader.SchemaDownload(versionKind, schemaRefs)
 	if err != nil {
-		csd.schemaCache[kind] = nil
+		csd.schemaCache[versionKind] = nil
 		return schema, err
 	}
-	csd.schemaCache[kind] = schema
+	csd.schemaCache[versionKind] = schema
 
 	return schema, nil
 }
@@ -46,17 +46,9 @@ func WithCache(schemaDownloader SchemaDownloader) *CachedSchemaDownloader {
 type SimpleSchemaDownloader struct {
 }
 
-func (ssd *SimpleSchemaDownloader) SchemaDownload (kind string, APIVersion string, primarySchemaBaseURL string, additionalSchemaLocations []string, kubernetesVersion string, isOpenShift bool, strict bool) (*gojsonschema.Schema, error) {
+func (ssd *SimpleSchemaDownloader) SchemaDownload (versionKind string, schemaRefs []string) (*gojsonschema.Schema, error) {
 	// We haven't cached this schema yet; look for one that works
 	//primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
-	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, kind, APIVersion, kubernetesVersion, isOpenShift, strict)
-	schemaRefs := []string{primarySchemaRef}
-
-	for _, additionalSchemaURLs := range additionalSchemaLocations {
-		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, kind, APIVersion, kubernetesVersion, isOpenShift, strict)
-		schemaRefs = append(schemaRefs, additionalSchemaRef)
-	}
-
 	var errors *multierror.Error
 
 	for _, schemaRef := range schemaRefs {
