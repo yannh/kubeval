@@ -125,19 +125,11 @@ func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaL
 // validateResource validates a single Kubernetes resource against
 // the relevant schema, detecting the type of resource automatically.
 // Returns the result and raw YAML body as map.
-func validateResource(data []byte, downloadSchema schemadownloader.SchemaDownloader, config *Config) (ValidationResult, map[string]interface{}, error) {
+func validateResource(body map[string]interface{}, downloadSchema schemadownloader.SchemaDownloader, config *Config) (ValidationResult, error) {
 	result := ValidationResult{}
-	var body map[string]interface{}
-	err := yaml.Unmarshal(data, &body)
-	if err != nil {
-		return result, body, fmt.Errorf("failed to decode resource : %s", err.Error())
-	} else if body == nil {
-		return result, body, nil
-	}
-
 	name, err := getStringAt(body, []string{"metadata", "name"})
 	if err != nil {
-		return result, body, err
+		return result, err
 	}
 	result.ResourceName = name
 
@@ -149,39 +141,39 @@ func validateResource(data []byte, downloadSchema schemadownloader.SchemaDownloa
 
 	kind, err := getString(body, "kind")
 	if err != nil {
-		return result, body, err
+		return result, err
 	}
 	result.Kind = kind
 
 	apiVersion, err := getString(body, "apiVersion")
 	if err != nil {
-		return result, body, err
+		return result, err
 	}
 	result.APIVersion = apiVersion
 
 	if in(config.KindsToSkip, kind) {
-		return result, body, nil
+		return result, nil
 	}
 
 	if in(config.KindsToReject, kind) {
-		return result, body, fmt.Errorf("prohibited resource kind '%s'", kind)
+		return result, fmt.Errorf("prohibited resource kind '%s'", kind)
 	}
 
 	schemaRefs := resourceSchemaRefs(result.VersionKind(), result.APIVersion, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
 	schema, err := downloadSchema.SchemaDownload(schemaRefs)
 	if err != nil || (schema == nil && !config.IgnoreMissingSchemas) {
-		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
 
 	schemaErrors, err := validateAgainstSchema(body, schema)
 	if err != nil {
-		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
 
 	result.ValidatedAgainstSchema = true
 	result.Errors = schemaErrors
 
-	return result, body, nil
+	return result, nil
 }
 
 func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]gojsonschema.ResultError, error) {
@@ -256,7 +248,17 @@ func Validate(fileName string, input []byte, downloadSchema schemadownloader.Sch
 				fileName = found[1]
 			}
 
-			result, body, err := validateResource(element, downloadSchema, config)
+			var body map[string]interface{}
+			err := yaml.Unmarshal(element, &body)
+			if err != nil {
+				err = fmt.Errorf("error parsing %s: %s", fileName, err)
+				errors = multierror.Append(errors, err)
+				if config.ExitOnError {
+					return results, errors
+				}
+			}
+
+			result, err := validateResource(body, downloadSchema, config)
 			if err != nil {
 				err = fmt.Errorf("%s in %s", err, fileName)
 				errors = multierror.Append(errors, err)
