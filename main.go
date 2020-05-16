@@ -89,9 +89,9 @@ var RootCmd = &cobra.Command{
 				log.Error(err)
 				os.Exit(1)
 			}
-			config.FileName = viper.GetString("filename")
+
 			schemaDownloader := schemadownloader.WithCache(schemadownloader.NewSchemaDownloader())
-			results, err := kubeval.Validate(buffer.Bytes(), schemaDownloader, config)
+			results, err := kubeval.Validate(viper.GetString("filename"), buffer.Bytes(), schemaDownloader, config)
 			if err != nil {
 				log.Error(err)
 				os.Exit(1)
@@ -126,9 +126,8 @@ var RootCmd = &cobra.Command{
 					success = false
 					continue
 				}
-				config.FileName = fileName
 				schemaDownloader := schemadownloader.WithCache(schemadownloader.NewSchemaDownloader())
-				results, err := kubeval.Validate(fileContents, schemaDownloader, config)
+				results, err := kubeval.Validate(fileName, fileContents, schemaDownloader, config)
 				if err != nil {
 					log.Error(err)
 					earlyExit()

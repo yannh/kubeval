@@ -57,7 +57,7 @@ type Config struct {
 	KindsToReject []string
 
 	// FileName is the name to be displayed when testing manifests read from stdin
-	FileName string
+	StdinFileName string
 
 	// OutputFormat is the name of the output formatter which will be used when
 	// reporting results to the user.
@@ -76,7 +76,7 @@ type Config struct {
 func NewDefaultConfig() *Config {
 	return &Config{
 		DefaultNamespace:  "default",
-		FileName:          "stdin",
+		StdinFileName:          "stdin",
 		KubernetesVersion: "master",
 	}
 }
@@ -88,7 +88,7 @@ func AddKubevalFlags(cmd *cobra.Command, config *Config) *cobra.Command {
 	cmd.Flags().BoolVar(&config.IgnoreMissingSchemas, "ignore-missing-schemas", false, "Skip validation for resource definitions without a schema")
 	cmd.Flags().BoolVar(&config.OpenShift, "openshift", false, "Use OpenShift schemas instead of upstream Kubernetes")
 	cmd.Flags().BoolVar(&config.Strict, "strict", false, "Disallow additional properties not in schema")
-	cmd.Flags().StringVarP(&config.FileName, "filename", "f", "stdin", "filename to be displayed when testing manifests read from stdin")
+	cmd.Flags().StringVarP(&config.StdinFileName, "filename", "f", "stdin", "filename to be displayed when testing manifests read from stdin")
 	cmd.Flags().StringSliceVar(&config.KindsToSkip, "skip-kinds", []string{}, "Comma-separated list of case-sensitive kinds to skip when validating against schemas")
 	cmd.Flags().StringSliceVar(&config.KindsToReject, "reject-kinds", []string{}, "Comma-separated list of case-sensitive kinds to prohibit validating against schemas")
 	cmd.Flags().StringVarP(&config.SchemaLocation, "schema-location", "s", "", "Base URL used to download schemas. Can also be specified with the environment variable KUBEVAL_SCHEMA_LOCATION.")

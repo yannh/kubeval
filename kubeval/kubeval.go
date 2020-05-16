@@ -210,7 +210,7 @@ func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]goj
 // and validating them all according to the relevant schemas
 // Allows passing a kubeval.NewSchemaCache() to cache schemas in-memory
 // between validations
-func Validate(input []byte, downloadSchema schemadownloader.SchemaDownloader, config *Config) ([]ValidationResult, error) {
+func Validate(fileName string, input []byte, downloadSchema schemadownloader.SchemaDownloader, config *Config) ([]ValidationResult, error) {
 	results := make([]ValidationResult, 0)
 
 	if len(config.DefaultNamespace) == 0 {
@@ -219,7 +219,7 @@ func Validate(input []byte, downloadSchema schemadownloader.SchemaDownloader, co
 
 	if len(input) == 0 {
 		result := ValidationResult{}
-		result.FileName = config.FileName
+		result.FileName = fileName
 		results = append(results, result)
 		return results, nil
 	}
@@ -248,26 +248,17 @@ func Validate(input []byte, downloadSchema schemadownloader.SchemaDownloader, co
 
 	// special case regexp for helm
 	helmSourcePattern := regexp.MustCompile(`^(?:---` + detectLineBreak(input) + `)?# Source: (.*)`)
-
-	// Save the fileName we were provided; if we detect a new fileName
-	// we'll use that, but we'll need to revert to the default afterward
-	originalFileName := config.FileName
-	defer func() {
-		// revert the filename back to the original
-		config.FileName = originalFileName
-	}()
-
 	seenResourcesSet := make(map[[4]string]bool) // set of [API version, kind, namespace, name]
 
 	for _, element := range bits {
 		if len(element) > 0 {
 			if found := helmSourcePattern.FindStringSubmatch(string(element)); found != nil {
-				config.FileName = found[1]
+				fileName = found[1]
 			}
 
 			result, body, err := validateResource(element, downloadSchema, config)
 			if err != nil {
-				err = fmt.Errorf("%s in %s", err, config.FileName)
+				err = fmt.Errorf("%s in %s", err, fileName)
 				errors = multierror.Append(errors, err)
 				if config.ExitOnError {
 					return results, errors
@@ -302,7 +293,7 @@ func Validate(input []byte, downloadSchema schemadownloader.SchemaDownloader, co
 			results = append(results, result)
 		} else {
 			result := ValidationResult{}
-			result.FileName = config.FileName
+			result.FileName = fileName
 			results = append(results, result)
 		}
 	}
