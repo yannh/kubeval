@@ -126,18 +126,17 @@ func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaL
 // Returns the result and raw YAML body as map.
 func validateResource(data []byte, downloadSchema SchemaDownloader, config *Config) (ValidationResult, map[string]interface{}, error) {
 	result := ValidationResult{}
-	result.FileName = config.FileName
 	var body map[string]interface{}
 	err := yaml.Unmarshal(data, &body)
 	if err != nil {
-		return result, body, fmt.Errorf("Failed to decode YAML from %s: %s", result.FileName, err.Error())
+		return result, body, fmt.Errorf("failed to decode resource : %s", err.Error())
 	} else if body == nil {
 		return result, body, nil
 	}
 
 	name, err := getStringAt(body, []string{"metadata", "name"})
 	if err != nil {
-		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+		return result, body, err
 	}
 	result.ResourceName = name
 
@@ -149,13 +148,13 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 
 	kind, err := getString(body, "kind")
 	if err != nil {
-		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+		return result, body, err
 	}
 	result.Kind = kind
 
 	apiVersion, err := getString(body, "apiVersion")
 	if err != nil {
-		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
+		return result, body, err
 	}
 	result.APIVersion = apiVersion
 
@@ -164,7 +163,7 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 	}
 
 	if in(config.KindsToReject, kind) {
-		return result, body, fmt.Errorf("Prohibited resource kind '%s' in %s", kind, result.FileName)
+		return result, body, fmt.Errorf("prohibited resource kind '%s'", kind)
 	}
 
 	schemaRefs := resourceSchemaRefs(result.VersionKind(), result.APIVersion, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
@@ -267,6 +266,7 @@ func Validate(input []byte, downloadSchema SchemaDownloader, config *Config) ([]
 
 			result, body, err := validateResource(element, downloadSchema, config)
 			if err != nil {
+				err = fmt.Errorf("%s in %s", err, config.FileName)
 				errors = multierror.Append(errors, err)
 				if config.ExitOnError {
 					return results, errors
