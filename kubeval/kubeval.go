@@ -255,6 +255,8 @@ func Validate(fileName string, input []byte, downloadSchema schemadownloader.Sch
 				errors = multierror.Append(errors, err)
 				if config.ExitOnError {
 					return results, errors
+				} else {
+					continue
 				}
 			}
 
@@ -267,7 +269,6 @@ func Validate(fileName string, input []byte, downloadSchema schemadownloader.Sch
 				}
 			} else {
 				if !in(config.KindsToSkip, result.Kind) {
-
 					metadata, _ := getObject(body, "metadata")
 					if metadata != nil {
 						namespace, _ := getString(metadata, "namespace")
