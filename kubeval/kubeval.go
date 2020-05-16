@@ -14,16 +14,6 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// ValidFormat is a type for quickly forcing
-// new formats on the gojsonschema loader
-type ValidFormat struct{}
-
-// IsFormat always returns true and meets the
-// gojsonschema.FormatChecker interface
-func (f ValidFormat) IsFormat(input interface{}) bool {
-	return true
-}
-
 // ValidationResult contains the details from
 // validating a given Kubernetes resource
 type ValidationResult struct {
