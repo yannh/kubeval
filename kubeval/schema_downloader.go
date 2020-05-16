@@ -1,6 +1,7 @@
 package kubeval
 
 import (
+	"crypto/md5"
 	"fmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/xeipuuv/gojsonschema"
@@ -9,36 +10,47 @@ import (
 
 type SchemaDownloader interface {
 	// returned schema may be nil scehma is missing and missing schemas are allowed
-	SchemaDownload(versionKind string, schemaRefs []string) (*gojsonschema.Schema, error)
+	SchemaDownload(schemaRefs []string) (*gojsonschema.Schema, error)
 }
 
 type CachedSchemaDownloader struct {
 	sync.Mutex
 	schemaDownloader SchemaDownloader
-	schemaCache map[string]*gojsonschema.Schema
+	schemaCache map[[16]byte]*gojsonschema.Schema
 }
 
-func (csd *CachedSchemaDownloader) SchemaDownload (versionKind string, schemaRefs []string) (*gojsonschema.Schema, error) {
+func schemaRefsHash(schemaRefs []string)[16]byte {
+	serialized := ""
+	for _, ref := range schemaRefs {
+		serialized += ref
+	}
+
+	return md5.Sum([]byte(serialized))
+}
+
+func (csd *CachedSchemaDownloader) SchemaDownload (schemaRefs []string) (*gojsonschema.Schema, error) {
 	csd.Lock()
 	defer csd.Unlock()
 
-	if schema, ok := csd.schemaCache[versionKind]; ok {
+	key := schemaRefsHash(schemaRefs)
+
+	if schema, ok := csd.schemaCache[key]; ok {
 		return schema, nil
 	}
 
-	schema, err := csd.schemaDownloader.SchemaDownload(versionKind, schemaRefs)
+	schema, err := csd.schemaDownloader.SchemaDownload(schemaRefs)
 	if err != nil {
-		csd.schemaCache[versionKind] = nil
+		csd.schemaCache[key] = nil
 		return schema, err
 	}
-	csd.schemaCache[versionKind] = schema
+	csd.schemaCache[key] = schema
 
 	return schema, nil
 }
 
 func WithCache(schemaDownloader SchemaDownloader) *CachedSchemaDownloader {
 	return &CachedSchemaDownloader{
-		schemaCache: make(map[string]*gojsonschema.Schema, 0),
+		schemaCache: make(map[[16]byte]*gojsonschema.Schema, 0),
 		schemaDownloader: schemaDownloader,
 	}
 }
@@ -46,7 +58,7 @@ func WithCache(schemaDownloader SchemaDownloader) *CachedSchemaDownloader {
 type SimpleSchemaDownloader struct {
 }
 
-func (ssd *SimpleSchemaDownloader) SchemaDownload (versionKind string, schemaRefs []string) (*gojsonschema.Schema, error) {
+func (ssd *SimpleSchemaDownloader) SchemaDownload (schemaRefs []string) (*gojsonschema.Schema, error) {
 	// We haven't cached this schema yet; look for one that works
 	//primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
 	var errors *multierror.Error

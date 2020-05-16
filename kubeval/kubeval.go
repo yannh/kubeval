@@ -168,7 +168,7 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 	}
 
 	schemaRefs := resourceSchemaRefs(&result, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
-	schema, err := downloadSchema.SchemaDownload(result.VersionKind(), schemaRefs)
+	schema, err := downloadSchema.SchemaDownload(schemaRefs)
 	if err != nil || (schema == nil && !config.IgnoreMissingSchemas) {
 		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
