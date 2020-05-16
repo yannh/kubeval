@@ -42,7 +42,7 @@ func (v *ValidationResult) QualifiedName() string {
 	}
 }
 
-func determineSchemaURL(baseURL, kind, apiVersion string, kubernetesVersion string, strict bool, isOpenShift bool) string {
+func determineSchemaURL(baseURL, kind, apiVersion string, kubernetesVersion string, strict bool) string {
 	// We have both the upstream Kubernetes schemas and the OpenShift schemas available
 	// the tool can toggle between then using the config.OpenShift boolean flag and here we
 	// use that to format the URL to match the required specification.
@@ -59,7 +59,7 @@ func determineSchemaURL(baseURL, kind, apiVersion string, kubernetesVersion stri
 		strictSuffix = "-strict"
 	}
 
-	if isOpenShift {
+	if strings.Contains(baseURL, "openshift") {
 		// If we're using the openshift schemas, there's no further processing required
 		return fmt.Sprintf("%s/%s-standalone%s/%s.json", baseURL, normalisedVersion, strictSuffix, strings.ToLower(kind))
 	}
@@ -100,7 +100,7 @@ func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 	return DefaultSchemaLocation
 }
 
-func resourceSchemaRefs(resource map[string]interface{}, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)([]string, error){
+func resourceSchemaRefs(resource map[string]interface{}, schemaLocations []string, kubernetesVersion string, strict bool)([]string, error){
 	kind, err := getString(resource, "kind")
 	if err != nil {
 		return nil, err
@@ -112,12 +112,9 @@ func resourceSchemaRefs(resource map[string]interface{}, additionalSchemaLocatio
 	}
 	versionKind := fmt.Sprintf(APIVersion+"/"+kind)
 
-	primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
-	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, versionKind, APIVersion, kubernetesVersion, isOpenShift, strict)
-	schemaRefs := []string{primarySchemaRef}
-
-	for _, additionalSchemaURLs := range additionalSchemaLocations {
-		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, versionKind, APIVersion, kubernetesVersion, isOpenShift, strict)
+	schemaRefs := []string{}
+	for _, additionalSchemaURLs := range schemaLocations {
+		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, versionKind, APIVersion, kubernetesVersion, strict)
 		schemaRefs = append(schemaRefs, additionalSchemaRef)
 	}
 
@@ -239,7 +236,10 @@ func Validate(fileName string, input []byte, downloadSchema schemadownloader.Sch
 				}
 			}
 
-			schemaRefs, err := resourceSchemaRefs(body, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
+			schemaLocations := []string{determineSchemaBaseURL(config.OpenShift, config.SchemaLocation)}
+			schemaLocations = append(schemaLocations, config.AdditionalSchemaLocations...)
+
+			schemaRefs, err := resourceSchemaRefs(body, schemaLocations, config.KubernetesVersion, config.Strict)
 			if err != nil {
 				err = fmt.Errorf("%s in %s", err, fileName)
 				errors = multierror.Append(errors, err)
