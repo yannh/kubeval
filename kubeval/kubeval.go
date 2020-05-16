@@ -108,13 +108,13 @@ func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 	return DefaultSchemaLocation
 }
 
-func resourceSchemaRefs(resource *ValidationResult, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)[]string{
+func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)[]string{
 	primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
-	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, resource.VersionKind(), resource.APIVersion, kubernetesVersion, isOpenShift, strict)
+	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, versionKind, APIVersion, kubernetesVersion, isOpenShift, strict)
 	schemaRefs := []string{primarySchemaRef}
 
 	for _, additionalSchemaURLs := range additionalSchemaLocations {
-		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, resource.VersionKind(), resource.APIVersion, kubernetesVersion, isOpenShift, strict)
+		additionalSchemaRef := determineSchemaURL(additionalSchemaURLs, versionKind, APIVersion, kubernetesVersion, isOpenShift, strict)
 		schemaRefs = append(schemaRefs, additionalSchemaRef)
 	}
 
@@ -167,21 +167,24 @@ func validateResource(data []byte, downloadSchema SchemaDownloader, config *Conf
 		return result, body, fmt.Errorf("Prohibited resource kind '%s' in %s", kind, result.FileName)
 	}
 
-	schemaRefs := resourceSchemaRefs(&result, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
+	schemaRefs := resourceSchemaRefs(result.VersionKind(), result.APIVersion, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
 	schema, err := downloadSchema.SchemaDownload(schemaRefs)
 	if err != nil || (schema == nil && !config.IgnoreMissingSchemas) {
 		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
 
-	schemaErrors, err := validateAgainstSchema(body, schema, &result)
+	schemaErrors, err := validateAgainstSchema(body, schema)
 	if err != nil {
 		return result, body, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
+
+	result.ValidatedAgainstSchema = true
 	result.Errors = schemaErrors
+
 	return result, body, nil
 }
 
-func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema, resource *ValidationResult) ([]gojsonschema.ResultError, error) {
+func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]gojsonschema.ResultError, error) {
 	// Without forcing these types the schema fails to load
 	// Need to Work out proper handling for these types
 	gojsonschema.FormatCheckers.Add("int64", ValidFormat{})
@@ -196,7 +199,6 @@ func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema, resour
 		wrappedErr := fmt.Errorf("Problem validating schema. Check JSON formatting: %s", err)
 		return []gojsonschema.ResultError{}, wrappedErr
 	}
-	resource.ValidatedAgainstSchema = true
 	if !results.Valid() {
 		return results.Errors(), nil
 	}
