@@ -83,19 +83,19 @@ func determineSchemaURL(baseURL, kind, apiVersion string, config *Config) string
 	return fmt.Sprintf("%s/%s-standalone%s/%s%s.json", baseURL, normalisedVersion, strictSuffix, strings.ToLower(kind), kindSuffix)
 }
 
-func determineSchemaBaseURL(config *Config) string {
+func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 	// Order of precendence:
 	// 1. If --openshift is passed, return the openshift schema location
 	// 2. If a --schema-location is passed, use it
 	// 3. If the KUBEVAL_SCHEMA_LOCATION is set, use it
 	// 4. Otherwise, use the DefaultSchemaLocation
 
-	if config.OpenShift {
+	if isOpenShift {
 		return OpenShiftSchemaLocation
 	}
 
-	if config.SchemaLocation != "" {
-		return config.SchemaLocation
+	if schemaLocation != "" {
+		return schemaLocation
 	}
 
 	// We only care that baseURL has a value after this call, so we can
@@ -199,7 +199,7 @@ func downloadSchema(resource *ValidationResult, schemaCache map[string]*gojsonsc
 	}
 
 	// We haven't cached this schema yet; look for one that works
-	primarySchemaBaseURL := determineSchemaBaseURL(config)
+	primarySchemaBaseURL := determineSchemaBaseURL(config.OpenShift, config.SchemaLocation)
 	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, resource.Kind, resource.APIVersion, config)
 	schemaRefs := []string{primarySchemaRef}
 
@@ -247,21 +247,16 @@ func NewSchemaCache() map[string]*gojsonschema.Schema {
 
 // Validate a Kubernetes YAML file, parsing out individual resources
 // and validating them all according to the  relevant schemas
-func Validate(input []byte, conf ...*Config) ([]ValidationResult, error) {
+func Validate(input []byte, config *Config) ([]ValidationResult, error) {
 	schemaCache := NewSchemaCache()
-	return ValidateWithCache(input, schemaCache, conf...)
+	return ValidateWithCache(input, schemaCache, config)
 }
 
 // ValidateWithCache validates a Kubernetes YAML file, parsing out individual resources
 // and validating them all according to the relevant schemas
 // Allows passing a kubeval.NewSchemaCache() to cache schemas in-memory
 // between validations
-func ValidateWithCache(input []byte, schemaCache map[string]*gojsonschema.Schema, conf ...*Config) ([]ValidationResult, error) {
-	config := NewDefaultConfig()
-	if len(conf) == 1 {
-		config = conf[0]
-	}
-
+func ValidateWithCache(input []byte, schemaCache map[string]*gojsonschema.Schema, config *Config) ([]ValidationResult, error) {
 	results := make([]ValidationResult, 0)
 
 	if len(config.DefaultNamespace) == 0 {
