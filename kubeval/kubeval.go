@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/instrumenta/kubeval/pkg/schemadownloader"
+	"github.com/instrumenta/kubeval/pkg/resourcevalidator"
 	"os"
 	"regexp"
 	"strings"
@@ -165,7 +166,7 @@ func validateResource(body map[string]interface{}, downloadSchema schemadownload
 		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
 
-	schemaErrors, err := validateAgainstSchema(body, schema)
+	schemaErrors, err := resourcevalidator.ValidateAgainstSchema(body, schema)
 	if err != nil {
 		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
@@ -174,28 +175,6 @@ func validateResource(body map[string]interface{}, downloadSchema schemadownload
 	result.Errors = schemaErrors
 
 	return result, nil
-}
-
-func validateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]gojsonschema.ResultError, error) {
-	// Without forcing these types the schema fails to load
-	// Need to Work out proper handling for these types
-	gojsonschema.FormatCheckers.Add("int64", ValidFormat{})
-	gojsonschema.FormatCheckers.Add("byte", ValidFormat{})
-	gojsonschema.FormatCheckers.Add("int32", ValidFormat{})
-	gojsonschema.FormatCheckers.Add("int-or-string", ValidFormat{})
-
-	documentLoader := gojsonschema.NewGoLoader(body)
-	results, err := schema.Validate(documentLoader)
-	if err != nil {
-		// This error can only happen if the Object to validate is poorly formed. There's no hope of saving this one
-		wrappedErr := fmt.Errorf("Problem validating schema. Check JSON formatting: %s", err)
-		return []gojsonschema.ResultError{}, wrappedErr
-	}
-	if !results.Valid() {
-		return results.Errors(), nil
-	}
-
-	return []gojsonschema.ResultError{}, nil
 }
 
 // ValidateWithCache validates a Kubernetes YAML file, parsing out individual resources
