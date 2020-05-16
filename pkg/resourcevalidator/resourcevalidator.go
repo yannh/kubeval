@@ -15,7 +15,7 @@ func (f ValidFormat) IsFormat(input interface{}) bool {
 	return true
 }
 
-func ValidateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]gojsonschema.ResultError, error) {
+func ValidateAgainstSchema(resource interface{}, schema *gojsonschema.Schema) ([]gojsonschema.ResultError, error) {
 	// Without forcing these types the schema fails to load
 	// Need to Work out proper handling for these types
 	gojsonschema.FormatCheckers.Add("int64", ValidFormat{})
@@ -23,7 +23,7 @@ func ValidateAgainstSchema(body interface{}, schema *gojsonschema.Schema) ([]goj
 	gojsonschema.FormatCheckers.Add("int32", ValidFormat{})
 	gojsonschema.FormatCheckers.Add("int-or-string", ValidFormat{})
 
-	documentLoader := gojsonschema.NewGoLoader(body)
+	documentLoader := gojsonschema.NewGoLoader(resource)
 	results, err := schema.Validate(documentLoader)
 	if err != nil {
 		// This error can only happen if the Object to validate is poorly formed. There's no hope of saving this one

@@ -110,7 +110,18 @@ func determineSchemaBaseURL(isOpenShift bool, schemaLocation string) string {
 	return DefaultSchemaLocation
 }
 
-func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)[]string{
+func resourceSchemaRefs(resource map[string]interface{}, additionalSchemaLocations []string, kubernetesVersion string, schemaLocation string, isOpenShift bool, strict bool)([]string, error){
+	kind, err := getString(resource, "kind")
+	if err != nil {
+		return nil, err
+	}
+
+	APIVersion, err := getString(resource, "apiVersion")
+	if err != nil {
+		return nil, err
+	}
+	versionKind := fmt.Sprintf(APIVersion+"/"+kind)
+
 	primarySchemaBaseURL := determineSchemaBaseURL(isOpenShift, schemaLocation)
 	primarySchemaRef := determineSchemaURL(primarySchemaBaseURL, versionKind, APIVersion, kubernetesVersion, isOpenShift, strict)
 	schemaRefs := []string{primarySchemaRef}
@@ -120,53 +131,52 @@ func resourceSchemaRefs(versionKind string, APIVersion string, additionalSchemaL
 		schemaRefs = append(schemaRefs, additionalSchemaRef)
 	}
 
-	return schemaRefs
+	return schemaRefs, nil
 }
 
 // validateResource validates a single Kubernetes resource against
 // the relevant schema, detecting the type of resource automatically.
 // Returns the result and raw YAML body as map.
-func validateResource(body map[string]interface{}, downloadSchema schemadownloader.SchemaDownloader, config *Config) (ValidationResult, error) {
+func validateResource(resource map[string]interface{}, downloadSchema schemadownloader.SchemaDownloader, schemaRefs []string, kindsToSkip, kindsToReject []string, ignoreMissingSchemas bool) (ValidationResult, error) {
 	result := ValidationResult{}
-	name, err := getStringAt(body, []string{"metadata", "name"})
+	name, err := getStringAt(resource, []string{"metadata", "name"})
 	if err != nil {
 		return result, err
 	}
 	result.ResourceName = name
 
-	namespace, err := getStringAt(body, []string{"metadata", "namespace"})
+	namespace, err := getStringAt(resource, []string{"metadata", "namespace"})
 	if err != nil {
 		result.ResourceNamespace = "default"
 	}
 	result.ResourceNamespace = namespace
 
-	kind, err := getString(body, "kind")
+	kind, err := getString(resource, "kind")
 	if err != nil {
 		return result, err
 	}
 	result.Kind = kind
 
-	apiVersion, err := getString(body, "apiVersion")
+	apiVersion, err := getString(resource, "apiVersion")
 	if err != nil {
 		return result, err
 	}
 	result.APIVersion = apiVersion
 
-	if in(config.KindsToSkip, kind) {
+	if in(kindsToSkip, kind) {
 		return result, nil
 	}
 
-	if in(config.KindsToReject, kind) {
+	if in(kindsToReject, kind) {
 		return result, fmt.Errorf("prohibited resource kind '%s'", kind)
 	}
 
-	schemaRefs := resourceSchemaRefs(result.VersionKind(), result.APIVersion, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
 	schema, err := downloadSchema.SchemaDownload(schemaRefs)
-	if err != nil || (schema == nil && !config.IgnoreMissingSchemas) {
+	if err != nil || (schema == nil && !ignoreMissingSchemas) {
 		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
 
-	schemaErrors, err := resourcevalidator.ValidateAgainstSchema(body, schema)
+	schemaErrors, err := resourcevalidator.ValidateAgainstSchema(resource, schema)
 	if err != nil {
 		return result, fmt.Errorf("%s: %s", result.FileName, err.Error())
 	}
@@ -239,36 +249,49 @@ func Validate(fileName string, input []byte, downloadSchema schemadownloader.Sch
 				}
 			}
 
-			result, err := validateResource(body, downloadSchema, config)
+			schemaRefs, err := resourceSchemaRefs(body, config.AdditionalSchemaLocations, config.KubernetesVersion, config.SchemaLocation, config.OpenShift, config.Strict)
 			if err != nil {
 				err = fmt.Errorf("%s in %s", err, fileName)
 				errors = multierror.Append(errors, err)
 				if config.ExitOnError {
 					return results, errors
+				} else {
+					continue
 				}
-			} else {
-				if !in(config.KindsToSkip, result.Kind) {
-					metadata, _ := getObject(body, "metadata")
-					if metadata != nil {
-						namespace, _ := getString(metadata, "namespace")
-						name, _ := getString(metadata, "name")
+			}
 
-						var resolvedNamespace string
-						if len(namespace) > 0 {
-							resolvedNamespace = namespace
-						} else {
-							resolvedNamespace = config.DefaultNamespace
+			result, err := validateResource(body, downloadSchema, schemaRefs, config.KindsToSkip, config.KindsToReject, config.IgnoreMissingSchemas)
+			if err != nil {
+				err = fmt.Errorf("%s in %s", err, fileName)
+				errors = multierror.Append(errors, err)
+				if config.ExitOnError {
+					return results, errors
+				} else {
+					continue
+				}
+			}
+
+			if !in(config.KindsToSkip, result.Kind) {
+				metadata, _ := getObject(body, "metadata")
+				if metadata != nil {
+					namespace, _ := getString(metadata, "namespace")
+					name, _ := getString(metadata, "name")
+
+					var resolvedNamespace string
+					if len(namespace) > 0 {
+						resolvedNamespace = namespace
+					} else {
+						resolvedNamespace = config.DefaultNamespace
+					}
+
+					// If resource has `metadata:name` attribute
+					if len(resolvedNamespace) > 0 && len(name) > 0 {
+						key := [4]string{result.APIVersion, result.Kind, resolvedNamespace, name}
+						if _, hasDuplicate := seenResourcesSet[key]; hasDuplicate {
+							errors = multierror.Append(errors, fmt.Errorf("%s: Duplicate '%s' resource '%s' in namespace '%s'", result.FileName, result.Kind, name, namespace))
 						}
 
-						// If resource has `metadata:name` attribute
-						if len(resolvedNamespace) > 0 && len(name) > 0 {
-							key := [4]string{result.APIVersion, result.Kind, resolvedNamespace, name}
-							if _, hasDuplicate := seenResourcesSet[key]; hasDuplicate {
-								errors = multierror.Append(errors, fmt.Errorf("%s: Duplicate '%s' resource '%s' in namespace '%s'", result.FileName, result.Kind, name, namespace))
-							}
-
-							seenResourcesSet[key] = true
-						}
+						seenResourcesSet[key] = true
 					}
 				}
 			}
